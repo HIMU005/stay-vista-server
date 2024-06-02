@@ -51,6 +51,26 @@ async function run() {
     const roomCollection = client.db("stayvista").collection("rooms");
     const userCollection = client.db("stayvista").collection("users");
 
+    // verify admin
+    const verifyAdmin = async (req, res, next) => {
+      const user = req.body;
+      const query = { email: user?.email };
+      const result = await userCollection.findOne(query);
+      if (!result || result?.role !== "admin")
+        res.status(401).send({ message: "unauthorized access" });
+      next();
+    };
+
+    // verify host
+    const verifyHost = async (req, res, next) => {
+      const user = req.body;
+      const query = { email: user?.email };
+      const result = await userCollection.findOne(query);
+      if (!result || result?.role !== "host")
+        res.status(401).send({ message: "unauthorized access" });
+      next();
+    };
+
     // auth related api
     app.post("/jwt", async (req, res) => {
       const user = req.body;
@@ -114,13 +134,34 @@ async function run() {
     });
 
     // get all users
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       const result = await userCollection.find().toArray();
       res.send(result);
     });
 
+    // get a userinfo by email from db
+    app.get("/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await userCollection.findOne({ email });
+      res.send(result);
+    });
+    // update user role
+    app.patch("/users/update/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = req.body;
+      const query = { email };
+      const updateDoc = {
+        $set: {
+          ...user,
+          timestamp: Date.now(),
+        },
+      };
+      const result = await userCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
     // post room data in db
-    app.post("/room", async (req, res) => {
+    app.post("/room", verifyToken, verifyHost, async (req, res) => {
       const roomData = req.body;
       const result = await roomCollection.insertOne(roomData);
       res.send(result);
@@ -144,20 +185,25 @@ async function run() {
     });
 
     // delete a room
-    app.delete("/room/:id", async (req, res) => {
+    app.delete("/room/:id", verifyToken, verifyHost, async (req, res) => {
       const id = req.params.id;
       const result = await roomCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
 
     // get all rooms for host
-    app.get("/my-listings/:email", async (req, res) => {
-      const email = req.params.email;
-      console.log(145, email);
-      let query = { "host.email": email };
-      const result = await roomCollection.find(query).toArray();
-      res.send(result);
-    });
+    app.get(
+      "/my-listings/:email",
+      verifyToken,
+      verifyHost,
+      async (req, res) => {
+        const email = req.params.email;
+        console.log(145, email);
+        let query = { "host.email": email };
+        const result = await roomCollection.find(query).toArray();
+        res.send(result);
+      }
+    );
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
